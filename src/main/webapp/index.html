@@ -1,0 +1,771 @@
+<html>
+	<head>
+		<title>SChub Openstack Wrapper UI</title>
+	</head>
+	<style>
+		.panelRow {
+			width: 1000px;
+		    height: 250px;
+		    float: left;
+		    clear: left;
+		}
+		.disPanel {
+			width: 480px;
+		    height: 240px;
+		    float: left;
+		}
+		.overlay {
+		     visibility: hidden;
+		     position: absolute;
+		     background-color: aliceblue;
+		     left: 0px;
+		     top: 0px;
+		     width:100%;
+		     height:100%;
+		     text-align:center;
+		     z-index: 1000;
+		}
+		.svcRunning {
+			background-color: greenyellow;
+			padding-left: 5px;
+    		padding-right: 5px;
+		}
+		.svcStaged {
+			background-color: gold;
+			padding-left: 5px;
+    		padding-right: 5px;
+		}
+		.svcWaiting {
+			background-color: gray;
+    		color: white;
+			padding-left: 5px;
+    		padding-right: 5px;
+		}
+		.svcStopped {
+			background-color: cornflowerblue;
+			padding-left: 5px;
+    		padding-right: 5px;
+		}
+		.svcError {
+			background-color: crimson;
+    		color: white;
+			padding-left: 5px;
+    		padding-right: 5px;
+		}
+}
+	</style>
+	<header>
+		<script type="text/javascript">
+			var fContext = servletContext();
+			var fTenants;
+			var fVMs;
+			var fDynFields;
+
+			function servletContext()
+			{
+				var context = window.location.pathname.split( '/' );
+				return "/" + context[1];
+			}
+		
+			function sendRequest(method, url, callback, payload)
+			{
+			  var xhr = new XMLHttpRequest();
+		    
+			  xhr.open(method, url, true);
+		      //xhr.responseType = 'json';
+			  
+			  xhr.onreadystatechange = function()
+			  {
+				  if(xhr.readyState == 4)
+				  {
+				      if(xhr.status == 200)
+			    	  {
+				    	  if(xhr.response)
+					   	  {
+				    		  callback(JSON.parse(xhr.response));
+						  }
+				    	  else
+					      {
+				    		  callback();
+						  }
+					      
+			    	  }
+				      else
+				      {
+					      console.log('Error ' + xhr.status + ': ' + xhr.statusText);
+					      showErrorOverlay(xhr);
+				      }
+				  }
+			  }
+			  
+			  if(payload)
+			  {
+				  xhr.setRequestHeader('Content-Type', 'application/json');
+				  xhr.send(JSON.stringify(payload));
+			  }
+			  else
+			  {
+				  xhr.send();
+			  }
+			}
+
+			function showErrorOverlay(xhr)
+			{
+				document.getElementById("error_header_div").innerHTML =
+					'Error: ' + xhr.status + ' - ' + xhr.statusText;
+				
+				if(xhr.response)
+				{
+					document.getElementById("error_div").innerHTML = xhr.response;
+				}
+				else
+				{
+					document.getElementById("error_div").innerHTML = '';
+				}
+				
+				overlay = document.getElementById("errorOverlay");
+				overlay.style.visibility = "visible";
+			}
+
+			function getSelectedElement(selector)
+			{
+				var selection = null;
+				var list = document.getElementsByName(selector);
+				for(var i = 0; i < list.length; ++i)
+				{
+				    if(list[i].checked)
+					{
+				        selection = list[i].value;
+				        break;
+				    }
+				}
+
+				return selection;
+			}
+
+			function getSelectedTenant()
+			{
+				return getSelectedElement('tenant_selection');
+			}
+
+			function getSelectedVM()
+			{
+				return getSelectedElement('vm_selection');
+			}
+
+			function getSelectedService()
+			{
+				return getSelectedElement('service_selection');
+			}
+
+        	function getTenants()
+			{
+            	var url = fContext + '/api/tenants/';
+
+            	sendRequest('GET', url, showTenants);
+            }
+
+        	function showTenants(response)
+        	{
+				fTenants = response;
+
+				var html = '<form id="tenant_selector">';
+
+				fTenants.forEach(function(entry)
+				{
+					html += '<input id="tenant_' + entry.id + '" type="radio" '
+						+ 'name="tenant_selection" value="' + entry.id
+						+ '" onchange="getTenantDetails()">';
+					html += '<label for="tenant_' + entry.id + '">' + entry.name + '</label><br/>';
+				});
+
+				html += '</form>';
+
+				document.getElementById('tenant_list').innerHTML = html;
+
+				getVMs();
+        	}
+        	
+			function getTenantDetails()
+			{
+				var tenantId = getSelectedTenant();
+
+				if(tenantId)
+				{
+					var url = fContext + '/api/tenants/' + tenantId;
+
+					sendRequest('GET', url, showTenantDetails);
+					
+				}
+				else
+				{
+					showTenantDetails(null);
+				}
+			}
+
+			function showTenantDetails(response)
+			{
+				html = '';
+
+				if(response)
+				{
+					html += '<b>ID</b>: ' + response.id + '<br/>';
+					html += '<b>name</b>: ' + response.name + '<br/>';
+					html += '<b>console name</b>: ' + response.consoleName + '<br/>';
+					html += '<b>description</b>: ' + response.description + '<br/>';
+
+					html += '<b>virtual machines</b>: ' + response.virtualMachines.length + '<br/>';
+					getTenantVMs(response.virtualMachines);
+					
+					html += '<b>availability zone</b>: ' + response.availabilityZone + '<br/>';
+
+					var cssClass = 'svcError';
+					if(response.state == 'RUNNING')
+					{
+						cssClass = 'svcRunning';
+					}
+					
+					html += '<b>state</b>: '
+						+ '<span class="' + cssClass + '">' + response.state + '</span><br/>';
+				}
+				else
+				{
+					getTenantVMs(new Array());
+				}
+
+				document.getElementById('tenant_status').innerHTML = html;
+
+				getServices();
+			}
+
+			function getServices()
+			{
+				var tenantId = getSelectedTenant();
+
+				var url = fContext + '/api/services/';
+
+				if(tenantId)
+				{
+					url += tenantId;
+				}
+				
+				sendRequest('GET', url, showServices);
+			}
+
+			function showServices(response)
+			{
+				var html = '';
+
+				response.forEach(function(entry)
+				{
+					// determine how to display status
+					var type = entry.value;
+					var cssClass = 'svcError';
+					if(type == 'running')
+					{
+						cssClass = 'svcRunning';
+					}
+					else if(type == 'staged')
+					{
+						cssClass = 'svcStaged';
+					}
+					else if(type == 'waiting')
+					{
+						cssClass = 'svcWaiting';
+					}
+					else if(type == 'stopped')
+					{
+						cssClass = 'svcStopped';
+					}
+					
+					html += '<input id="service_' + entry.name + '" type="radio" '
+						+ 'name="service_selection" value="' + entry.name + '">';
+					html += '<label for="service_' + entry.name + '">'
+						+ entry.name + '</label>'
+						+ ' - <span class="' + cssClass + '">' + entry.value + '</span><br/>';
+				});
+				
+				document.getElementById('service_list').innerHTML = html;
+			}
+
+			function getTenantVMs(vmArray)
+			{
+				if(vmArray.length > 0)
+				{
+					var url = fContext + '/api/machines/';
+					
+					vmArray.forEach(function(entry)
+				    {
+						url += entry + ',';
+				    });
+				    url = url.substring(0, url.length - 1);
+
+					sendRequest('GET', url, showVMs);
+				}
+				else
+				{
+					showVMs(new Array());
+				}
+			}
+        	
+			function getVMs()
+			{
+				var url = fContext + '/api/machines/';
+
+				sendRequest('GET', url, showVMs);
+			}
+
+			function showVMs(response)
+			{
+				if(response.id)
+				{
+					// check if not an array and repair
+					var array = new Array();
+					array.push(response);
+					response = array;
+				}
+				
+				fVMs = response;
+
+				var html = '<form id="vm_selector">';
+
+				fVMs.forEach(function(entry)
+				{
+					html += '<input id="vm_' + entry.id
+						+ '" type="radio" name="vm_selection" value="' + entry.id
+	            	  	+ '" onchange="getVMDetails()">';
+					html += '<label for="vm_' + entry.id + '">' + entry.name + '</label><br/>';
+				});
+
+				html += '</form>';
+              
+				document.getElementById('vm_list').innerHTML = html;
+			}
+			
+			function getVMDetails()
+			{
+				var vmId = getSelectedVM();
+
+				if(vmId)
+				{
+					var url = fContext + '/api/machines/' + vmId;
+
+					sendRequest('GET', url, showVMDetails);
+				}
+				else
+				{
+					showVMDetails(null);
+				}
+			}
+
+			function showVMDetails(response)
+			{
+				html = '';
+
+				if(response)
+				{
+					html += '<b>ID</b>: ' + response.id + '<br/>';
+					html += '<b>name</b>: ' + response.name + '<br/>';
+					html += '<b>tenant ID</b>: ' + response.tenantId + '<br/>';
+					html += '<b>image</b>: ' + response.imageName + '<br/>';
+					html += '<b>size</b>: ' + response.flavorName + '<br/>';
+
+					html += '<b>IP addresses</b>: ';
+					response.ipAddresses.forEach(function(entry)
+				    {
+						html += entry + ', ';
+				    });
+				    html = html.substring(0, html.length - 2);
+				    html += '<br/>';
+
+					html += '<b>services</b>: ';
+					response.services.forEach(function(entry)
+				    {
+						html += entry + ', ';
+				    });
+				    html = html.substring(0, html.length - 2);
+				    html += '<br/>';
+				    
+				    var cssClass = 'svcError';
+					if(response.state == 'RUNNING')
+					{
+						cssClass = 'svcRunning';
+					}
+					
+					html += '<b>state</b>: '
+						+ '<span class="' + cssClass + '">' + response.state + '</span><br/>';
+				}
+				
+				document.getElementById('vm_status').innerHTML = html;
+			}
+			
+			function hideOverlay(overlayName)
+			{
+				// hide specialized overlay
+				overlay = document.getElementById(overlayName);
+				if(overlay)
+				{
+					overlay.style.visibility = "hidden";
+				}
+
+				// clear tenant overlay
+				document.getElementById("tenant_name_field").value = '';
+				document.getElementById("tenant_con_name_field").value = '';
+				document.getElementById("tenant_description_field").value = '';
+
+				// clear VM overlay
+				document.getElementById("vm_name_field").value = '';
+				document.getElementById("vm_size_field").value = '';
+				document.getElementById("vm_services_field").value = '';
+			}
+
+			function showAddTenantForm()
+			{
+				overlay = document.getElementById("createTenantOverlay");
+				overlay.style.visibility = "visible";
+			}
+
+			function addTenant()
+			{
+				// construct tenant object
+				var tenant = new Object();
+				tenant['name'] = document.getElementById("tenant_name_field").value;
+				tenant['consoleName'] = document.getElementById("tenant_con_name_field").value;
+				tenant['description'] = document.getElementById("tenant_description_field").value;
+				tenant['mailDomain'] = document.getElementById("tenant_maildomain_field").value;
+				tenant['availabilityZone'] = document.getElementById("tenant_avail_zone").value;
+
+				// send to server
+				var url = fContext + '/api/tenants/';
+	            sendRequest('POST', url, tenantAdded, tenant);
+			}
+
+			function tenantAdded(response)
+			{
+				hideOverlay('createTenantOverlay');
+				getTenants();
+			}
+
+			function deleteTenant()
+			{
+				var tenantId = getSelectedTenant();
+
+				if(tenantId)
+				{
+					// TODO: retrieve name
+					if(confirm("Do you really want to delete this tenant and all of its machines?"))
+					{
+						var url = fContext + '/api/tenants/' + tenantId;
+			            sendRequest('DELETE', url, getTenants);
+					}
+				}
+			}
+			
+			function showAddVMForm()
+			{
+				var tenantId = getSelectedTenant();
+
+				if(!tenantId)
+				{
+					alert('no tenant selected');
+				}
+				else
+				{
+					overlay = document.getElementById("createVMOverlay");
+					overlay.style.visibility = "visible";
+				}
+			}
+
+			function addVM()
+			{
+				var tenantId = getSelectedTenant();
+
+				// construct tenant object
+				var vm = new Object();
+				vm['name'] = document.getElementById("vm_name_field").value;
+				vm['flavorName'] = document.getElementById("vm_size_field").value;
+
+				var svcString = document.getElementById("vm_services_field").value;
+				var svcArray = svcString.split(',');
+				vm['services'] = svcArray;
+
+				vm['tenantId'] = tenantId;
+
+				vm['virt_cpus'] = document.getElementById("vm_cpus_field").value;
+				vm['virt_ram'] = document.getElementById("vm_ram_field").value;
+				vm['virt_disk'] = document.getElementById("vm_disk_field").value;
+
+				// send to server
+				var url = fContext + '/api/machines/';
+	            sendRequest('POST', url, vmAdded, vm);
+			}
+
+			function vmAdded(response)
+			{
+				hideOverlay('createVMOverlay');
+				getTenants();
+			}
+
+			function deleteVM()
+			{
+				var vmId = getSelectedVM();
+
+				if(vmId)
+				{
+					// TODO: retrieve name
+					if(confirm("Do you really want to delete this virtual machine?"))
+					{
+						var url = fContext + '/api/machines/' + vmId;
+			            sendRequest('DELETE', url, getTenants);
+					}
+				}
+			}
+			
+			function showAddServiceForm()
+			{
+				var tenantId = getSelectedTenant();
+				var vmId = getSelectedVM();
+				var service = getSelectedService();
+
+				if(!tenantId)
+				{
+					alert('no tenant and VM selected');
+				}
+				else if(!vmId)
+				{
+					alert('no virtual machine selected');
+				}
+				else if(!service)
+				{
+					alert('no service selected');
+				}
+				else
+				{
+					document.getElementById("service_name_field").value = service;
+					document.getElementById("vm_id_field").value = vmId;
+
+					// get existing configuration for service
+					var url = fContext + '/api/services/' + tenantId + '/' + service;
+					sendRequest('GET', url, fillAddServiceForm);
+				}
+			}
+
+			function fillAddServiceForm(response)
+			{
+				fDynFields = new Array();
+				
+				var html = '';
+
+				// display existing configuration as a basis
+				response.forEach(function(entry)
+				{
+					var value = entry.value;
+					if(value)
+					{
+						value = value.replace(/["]/g, "\"");
+					}
+					
+					html += '<label for="dyn_' + entry.name + '">' + entry.name + ': </label>';
+					html += '<input id="dyn_' + entry.name + '" name="' + entry.name
+						+ '" value="' + entry.value + '" type="text"/>';
+					html += '<br/>';
+
+					fDynFields.push('dyn_' + entry.name);
+				});
+
+				document.getElementById("dynamic_service_fields").innerHTML = html;
+
+				// actually show overlay
+				overlay = document.getElementById("createServiceOverlay");
+				overlay.style.visibility = "visible";
+			}
+
+			function addService()
+			{
+				var tenantId = getSelectedTenant();
+
+				var service = document.getElementById("service_name_field").value;
+
+				// construct service parameters array
+				var params = new Array();
+				fDynFields.forEach(function(entry)
+				{
+					var name = document.getElementById(entry).name;
+					var value = document.getElementById(entry).value;
+
+					var pair = new Object();
+					pair['name'] = name;
+					pair['value'] = value;
+					params.push(pair);
+				});
+
+				var entry = new Object();
+				entry['name'] = 'vmId';
+				entry['value'] = document.getElementById("vm_id_field").value;
+				params.push(entry);
+
+				// send to server
+				var url = fContext + '/api/services/' + tenantId + '/' + service;
+	            sendRequest('POST', url, serviceAdded, params);
+			}
+
+			function serviceAdded(response)
+			{
+				hideOverlay('createServiceOverlay');
+				getTenants();
+			}
+
+			function deleteService()
+			{
+				var tenantId = getSelectedTenant();
+				var service = getSelectedService();
+				
+				if(tenantId && service)
+				{
+					if(confirm("Do you really want to stop " + service + "?"))
+					{
+						var url = fContext + '/api/services/' + tenantId + '/' + service;
+			            sendRequest('DELETE', url, getTenants);
+					}
+				}
+			}
+			
+			function init()
+			{
+				getTenants();
+			}
+		</script>
+	</header>
+	<body onload="init()">
+		<h2>Social Collaboration Hub Controls</h2>
+		
+		<div class="panelRow">
+			<div id="tenant_list_container" class="disPanel">
+				<h3>Tenants</h3>
+				<div id="tenant_list">
+					
+				</div>
+			</div>
+			<div id="tenant_status_container" class="disPanel">
+				<h3>Tenant Status</h3>
+				<div id="tenant_status">
+					
+				</div>
+			</div>
+		</div>
+		
+		<div class="panelRow">
+			<div id="vm_list_container" class="disPanel">
+				<h3>Virtual Machines</h3>
+				<div id="vm_list">
+					
+				</div>
+			</div>
+			<div id="vm_status_container" class="disPanel">
+				<h3>VM Status</h3>
+				<div id="vm_status">
+					
+				</div>
+			</div>
+		</div>
+		
+		<div id="service_list_container" class="disPanel">
+			<h3>Services</h3>
+			<div id="service_list">
+				
+			</div>
+		</div>
+		
+		<div class="panelRow">
+			<div id="tenant_controls">
+				<button onclick="showAddTenantForm()">add tenant</button>
+				<button>modify tenant</button>
+				<button onclick="deleteTenant()">delete tenant</button>
+				<br/>
+				<button onclick="showAddVMForm()">add virtual machine</button>
+				<button >modify virtual machine</button>
+				<button onclick="deleteVM()">delete virtual machine</button>
+				<br/>
+				<button onclick="showAddServiceForm()">start service</button>
+				<button >modify service</button>
+				<button onclick="deleteService()">stop service</button>
+				<br/>
+				<button onclick="getTenants()">refresh</button>
+			</div>
+		</div>
+		
+		<div id="createTenantOverlay" class="overlay">
+			<br>
+			<h3>add a tenant</h3>
+           	<label for="tenant_name_field">Tenant Name: </label>
+			<input id="tenant_name_field" name="tenant_name_field" type="text"/>
+			<br/>
+           	<label for="tenant_con_name_field">Tenant Console Name: </label>
+			<input id="tenant_con_name_field" name="tenant_con_name_field" type="text"/>
+			<br/>
+           	<label for="tenant_description_field">Tenant Description: </label>
+			<input id="tenant_description_field" name="tenant_description_field" type="text"/>
+			<br/>
+           	<label for="tenant_maildomain_field">Tenant E-Mail Domain: </label>
+			<input id="tenant_maildomain_field" name="tenant_maildomain_field" type="text"/>
+			<br/>
+           	<label for="tenant_avail_zone">Availability Zone: </label>
+			<input id="tenant_avail_zone" name="tenant_avail_zone" type="text" value="nova">
+			<br/>
+			<button onclick="addTenant()">create tenant</button>
+			<button onclick="hideOverlay('createTenantOverlay')">cancel</button>
+		</div>
+		
+		<div id="createVMOverlay" class="overlay">
+			<br>
+			<h3>add a virtual machine</h3>
+           	<label for="vm_name_field">VM Name: </label>
+			<input id="vm_name_field" name="vm_name_field" type="text"/>
+			<br/>
+           	<label for="vm_size_field">VM Size: </label>
+			<input id="vm_size_field" name="vm_size_field" type="text"/>
+			<br/>
+           	<label for="vm_services_field">VM Services: </label>
+			<input id="vm_services_field" name="vm_services_field" type="text"/>
+			<br/>
+           	<label for="vm_cpus_field">virtual VM CPUs: </label>
+			<input id="vm_cpus_field" name="vm_cpus_field" type="text"/>
+			<br/>
+           	<label for="vm_ram_field">virtual VM RAM (MBs): </label>
+			<input id="vm_ram_field" name="vm_ram_field" type="text"/>
+			<br/>
+           	<label for="vm_disk_field">virtual VM Disk (MBs): </label>
+			<input id="vm_disk_field" name="vm_disk_field" type="text"/>
+			<br/>
+			<button onclick="addVM()">create virtual machine</button>
+			<button onclick="hideOverlay('createVMOverlay')">cancel</button>
+		</div>
+		
+		<div id="createServiceOverlay" class="overlay">
+			<br>
+			<h3>add a service to a virtual machine</h3>
+           	<label for="service_name_field">Service Name: </label>
+			<input id="service_name_field" name="service_name_field" type="text"/>
+			<br/>
+           	<label for="vm_id_field">VM ID: </label>
+			<input id="vm_id_field" name="vm_id_field" type="text"/>
+			<br/>
+			<div id="dynamic_service_fields">
+			</div>
+			<br/>
+			<button onclick="addService()">start service</button>
+			<button onclick="hideOverlay('createServiceOverlay')">cancel</button>
+		</div>
+		
+		<div id="errorOverlay" class="overlay">
+			<br>
+			<div id="error_header_div">
+			</div>
+			<br>
+			<div id="error_div">
+			</div>
+			<br/>
+			<button onclick="hideOverlay('errorOverlay')">OK</button>
+		</div>
+	</body>
+</html>

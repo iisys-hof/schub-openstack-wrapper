@@ -69,7 +69,7 @@ public class OpenXchangeConf implements IServiceConfigurator
             + ":" + confs.getString(DEF_CAS_PORT_PROP) + "/cas/clearPass";
         svcConf.put(ServiceConstants.OX_CAS_CLEARPASS_URL, clearPassUrl);
         
-        String casAuthUrl = appsuiteUrl + "api/cascallback";
+        String casAuthUrl = appsuiteUrl + "api/casauth";
         svcConf.put(ServiceConstants.OX_CAS_AUTH_URL, casAuthUrl);
         
         String clearPassCallback = "https://" + ServiceConstants.OPEN_XCHANGE_SERVICE

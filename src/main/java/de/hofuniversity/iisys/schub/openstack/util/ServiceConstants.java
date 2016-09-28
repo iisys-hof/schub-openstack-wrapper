@@ -161,6 +161,9 @@ public class ServiceConstants
     public static final String OX_CAS_AUTH_URL = "INSERT_OX_CAS_AUTH_URL_HERE";
     public static final String OX_CLEARPASS_CALLBACK = "INSERT_CLEARPASS_CALLBACK_HERE";
     
+    public static final String OX_CAMUNDA_REST_URL = "INSERT_CAMUNDA_REST_URL_HERE";
+    public static final String OX_LIFERAY_URL = "INSERT_LIFERAY_URL_HERE";
+    
     public static final String OX_ADMIN_MAIL = "INSERT_ADMIN_MAIL_HERE";
     public static final String OX_ADMIN_PASSWORD = "INSERT_ADMIN_PASSWORD_HERE";
     

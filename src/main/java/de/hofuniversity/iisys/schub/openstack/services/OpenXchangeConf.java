@@ -65,6 +65,7 @@ public class OpenXchangeConf implements IServiceConfigurator
         svcConf.put(ServiceConstants.OX_CAS_URL, casUrl);
         
         String clearPassUrl = "https://" + ServiceConstants.CAS_SERVICE
+            + "." + tc.getfTenantConsoleName()
             + "." + cc.getfIntDomain()
             + ":" + confs.getString(DEF_CAS_PORT_PROP) + "/cas/clearPass";
         svcConf.put(ServiceConstants.OX_CAS_CLEARPASS_URL, clearPassUrl);
@@ -73,8 +74,18 @@ public class OpenXchangeConf implements IServiceConfigurator
         svcConf.put(ServiceConstants.OX_CAS_AUTH_URL, casAuthUrl);
         
         String clearPassCallback = "https://" + ServiceConstants.OPEN_XCHANGE_SERVICE
+            + "." + tc.getfTenantConsoleName()
             + "." + cc.getfIntDomain() + "/appsuite/api/cascallback";
         svcConf.put(ServiceConstants.OX_CLEARPASS_CALLBACK, clearPassCallback);
+        
+        // additional UI plugins
+        String camundaRestUrl = "https://" +  tc.getfTenantConsoleName()
+            + "." + cc.getfIntDomain() + "/engine-rest";
+        svcConf.put(ServiceConstants.OX_CAMUNDA_REST_URL, camundaRestUrl);
+        
+        String liferayUrl = "https://" +  tc.getfTenantConsoleName()
+            + "." + cc.getfIntDomain();
+        svcConf.put(ServiceConstants.OX_LIFERAY_URL, liferayUrl);
         
         String adminMail = "admin@" + tc.getfTenantConsoleName() + ".schub.de";
         svcConf.put(ServiceConstants.OX_ADMIN_MAIL, adminMail);
